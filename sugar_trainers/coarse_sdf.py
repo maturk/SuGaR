@@ -1,17 +1,17 @@
 import os
+import time
+
 import numpy as np
-import torch
 import open3d as o3d
+import torch
 from pytorch3d.loss import mesh_laplacian_smoothing, mesh_normal_consistency
 from pytorch3d.transforms import quaternion_apply, quaternion_invert
+from rich.console import Console
 from sugar_scene.gs_model import GaussianSplattingWrapper, fetchPly
+from sugar_scene.sugar_densifier import SuGaRDensifier
 from sugar_scene.sugar_model import SuGaR
 from sugar_scene.sugar_optimizer import OptimizationParams, SuGaROptimizer
-from sugar_scene.sugar_densifier import SuGaRDensifier
-from sugar_utils.loss_utils import ssim, l1_loss, l2_loss
-
-from rich.console import Console
-import time
+from sugar_utils.loss_utils import l1_loss, l2_loss, ssim
 
 
 def coarse_training_with_sdf_regularization(args):
@@ -26,7 +26,7 @@ def coarse_training_with_sdf_regularization(args):
     downscale_resolution_factor = 1  # 2, 4
 
     # -----Model parameters-----
-    use_eval_split = True
+    use_eval_split = False
     n_skip_images_for_eval_split = 8
 
     freeze_gaussians = False
@@ -383,7 +383,7 @@ def coarse_training_with_sdf_regularization(args):
                 sugar._sh_coordinates_dc[...] = nerfmodel.gaussians._features_dc.detach()
                 sugar._sh_coordinates_rest[...] = nerfmodel.gaussians._features_rest.detach()
         
-    CONSOLE.print(f'\nSuGaR model has been initialized.')
+    CONSOLE.print('\nSuGaR model has been initialized.')
     CONSOLE.print(sugar)
     CONSOLE.print(f'Number of parameters: {sum(p.numel() for p in sugar.parameters() if p.requires_grad)}')
     CONSOLE.print(f'Checkpoints will be saved in {sugar_checkpoint_path}')
@@ -524,6 +524,24 @@ def coarse_training_with_sdf_regularization(args):
                     
                 # Compute loss 
                 loss = loss_fn(pred_rgb, gt_rgb)
+                if iteration % 100 == 0:
+                    from pathlib import Path
+
+                    from PIL import Image
+                    def save_img(image, image_path, verbose=True) -> None:
+                        if image.shape[-1] == 1 and torch.is_tensor(image):
+                            image = image.repeat(1, 1, 3)
+                        if torch.is_tensor(image):
+                            image = image.detach().cpu().numpy() * 255
+                            image = image.astype(np.uint8)
+                        if not Path(os.path.dirname(image_path)).exists():
+                            Path(os.path.dirname(image_path)).mkdir(parents=True)
+                        im = Image.fromarray(image)
+                        if verbose:
+                            print("saving to: ", image_path)
+                        im.save(image_path)
+                    save_img(pred_rgb.squeeze(0).permute(1,2,0), os.getcwd()+"/test_pred_rgb.png")
+                    save_img(gt_rgb.squeeze(0).permute(1,2,0), os.getcwd()+"/test_gt_rgb.png")
                         
                 if enforce_entropy_regularization and iteration > start_entropy_regularization_from and iteration < end_entropy_regularization_at:
                     if iteration == start_entropy_regularization_from + 1:
@@ -655,6 +673,9 @@ def coarse_training_with_sdf_regularization(args):
                                                 sdf_estimation_loss = ((sdf_values - sdf_estimation.abs()) / sdf_sample_std).pow(2)
                                             else:
                                                 sdf_estimation_loss = (sdf_values - sdf_estimation.abs()).abs() / sdf_sample_std
+                                            if iteration==1 or iteration % 100 == 0:
+                                                print('ideal sdf', sdf_estimation.abs())
+                                                print("current sdf values: ", sdf_values)
                                             loss = loss + sdf_estimation_factor * sdf_estimation_loss.clamp(max=10.*sugar.get_cameras_spatial_extent()).mean()
                                         elif sdf_estimation_mode == 'density':
                                             beta = fields['beta'][proj_mask]

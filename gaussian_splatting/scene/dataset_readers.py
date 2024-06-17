@@ -9,19 +9,29 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import json
 import os
 import sys
-from PIL import Image
-from typing import NamedTuple
-from scene.colmap_loader import read_extrinsics_text, read_intrinsics_text, qvec2rotmat, \
-    read_extrinsics_binary, read_intrinsics_binary, read_points3D_binary, read_points3D_text
-from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal
-import numpy as np
-import json
 from pathlib import Path
+from typing import NamedTuple
+
+import numpy as np
+from PIL import Image
 from plyfile import PlyData, PlyElement
+from utils.graphics_utils import focal2fov, fov2focal, getWorld2View2
 from utils.sh_utils import SH2RGB
+
+from scene.colmap_loader import (
+    qvec2rotmat,
+    read_extrinsics_binary,
+    read_extrinsics_text,
+    read_intrinsics_binary,
+    read_intrinsics_text,
+    read_points3D_binary,
+    read_points3D_text,
+)
 from scene.gaussian_model import BasicPointCloud
+
 
 class CameraInfo(NamedTuple):
     uid: int
@@ -81,7 +91,6 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         uid = intr.id
         R = np.transpose(qvec2rotmat(extr.qvec))
         T = np.array(extr.tvec)
-
         if intr.model=="SIMPLE_PINHOLE":
             focal_length_x = intr.params[0]
             FovY = focal2fov(focal_length_x, height)
@@ -91,6 +100,15 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
             focal_length_y = intr.params[1]
             FovY = focal2fov(focal_length_y, height)
             FovX = focal2fov(focal_length_x, width)
+        elif intr.model =="OPENCV":
+            focal_length_x = intr.params[0]
+            focal_length_y = intr.params[1]
+            FovY = focal2fov(focal_length_y, height)
+            FovX = focal2fov(focal_length_x, width)
+            print()
+            print(focal_length_x, focal_length_y)
+            print(FovX, FovY)
+            quit()
         else:
             assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
 
@@ -109,8 +127,8 @@ def fetchPly(path):
     vertices = plydata['vertex']
     positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
     colors = np.vstack([vertices['red'], vertices['green'], vertices['blue']]).T / 255.0
-    normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
-    return BasicPointCloud(points=positions, colors=colors, normals=normals)
+    #normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
+    return BasicPointCloud(points=positions, colors=colors, normals=np.zeros_like(positions))
 
 def storePly(path, xyz, rgb):
     # Define the dtype for the structured array
@@ -181,11 +199,25 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
 
     with open(os.path.join(path, transformsfile)) as json_file:
         contents = json.load(json_file)
-        fovx = contents["camera_angle_x"]
+
+        if "fl_x" in contents:
+            import math
+            fx = contents["fl_x"]
+            fy = contents["fl_y"]
+            cx = contents["cx"]
+            cy = contents["cy"]
+            width = contents["w"]
+            height = contents["h"]
+
+            fovx = 2 * math.atan(width / (2 * fx))
+            fovy = 2 * math.atan(height / (2 * fy))
+        else:
+            fovx = contents["camera_angle_x"]
 
         frames = contents["frames"]
+        print(len(frames))
         for idx, frame in enumerate(frames):
-            cam_name = os.path.join(path, frame["file_path"] + extension)
+            cam_name = os.path.join(path, frame["file_path"])
 
             # NeRF 'transform_matrix' is a camera-to-world transform
             c2w = np.array(frame["transform_matrix"])
@@ -193,7 +225,9 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             c2w[:3, 1:3] *= -1
 
             # get the world-to-camera transform and set R, T
-            w2c = np.linalg.inv(c2w)
+            four = np.eye(4)
+            four[:3,:4] = c2w
+            w2c = np.linalg.inv(four)
             R = np.transpose(w2c[:3,:3])  # R is stored transposed due to 'glm' in CUDA code
             T = w2c[:3, 3]
 
@@ -254,7 +288,35 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
                            ply_path=ply_path)
     return scene_info
 
+def readTransformsInfo(path, white_background, eval, extension=".png"):
+    print("Reading Training Transforms")
+    cam_infos = readCamerasFromTransforms(path, "transforms.json", white_background, extension)
+    nerf_normalization = getNerfppNorm(cam_infos)
+    
+    ply_path = os.path.join(path, "point_cloud.ply")
+    if not os.path.exists(ply_path):
+        # Since this data set has no colmap data, we start with random points
+        num_pts = 100_000
+        print(f"Generating random point cloud ({num_pts})...")
+        
+        # We create random points inside the bounds of the synthetic Blender scenes
+        xyz = np.random.random((num_pts, 3)) * 2.6 - 1.3
+        shs = np.random.random((num_pts, 3)) / 255.0
+        pcd = BasicPointCloud(points=xyz, colors=SH2RGB(shs), normals=np.zeros((num_pts, 3)))
+
+        storePly(ply_path, xyz, SH2RGB(shs) * 255)
+    pcd = fetchPly(ply_path)
+    #    pcd = None
+
+    scene_info = SceneInfo(point_cloud=pcd,
+                           train_cameras=cam_infos,
+                           test_cameras=cam_infos,
+                           nerf_normalization=nerf_normalization,
+                           ply_path=ply_path)
+    return scene_info
+
 sceneLoadTypeCallbacks = {
     "Colmap": readColmapSceneInfo,
-    "Blender" : readNerfSyntheticInfo
+    "Blender" : readNerfSyntheticInfo,
+    "Transforms": readTransformsInfo,
 }

@@ -1,20 +1,32 @@
-import torch.nn as nn
 import open3d as o3d
-from pytorch3d.renderer import TexturesUV, TexturesVertex
-from pytorch3d.structures import Meshes
-from pytorch3d.transforms import quaternion_apply, quaternion_invert, matrix_to_quaternion, quaternion_to_matrix
-from pytorch3d.ops import knn_points, estimate_pointcloud_normals
-from pytorch3d.renderer import RasterizationSettings, MeshRasterizer
-from simple_knn._C import distCUDA2
-from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
-from sugar_utils.spherical_harmonics import (
-    eval_sh, RGB2SH, SH2RGB,
+import torch.nn as nn
+from diff_gaussian_rasterization import (
+    GaussianRasterizationSettings,
+    GaussianRasterizer,
 )
-from sugar_utils.graphics_utils import *
-from sugar_utils.general_utils import inverse_sigmoid
-from sugar_scene.gs_model import GaussianSplattingWrapper, GaussianModel
+from pytorch3d.ops import estimate_pointcloud_normals, knn_points
+from pytorch3d.renderer import (
+    MeshRasterizer,
+    RasterizationSettings,
+    TexturesUV,
+    TexturesVertex,
+)
+from pytorch3d.structures import Meshes
+from pytorch3d.transforms import (
+    matrix_to_quaternion,
+    quaternion_apply,
+    quaternion_invert,
+    quaternion_to_matrix,
+)
 from sugar_scene.cameras import CamerasWrapper
-
+from sugar_scene.gs_model import GaussianModel, GaussianSplattingWrapper
+from sugar_utils.general_utils import inverse_sigmoid
+from sugar_utils.graphics_utils import *
+from sugar_utils.spherical_harmonics import (
+    RGB2SH,
+    SH2RGB,
+    eval_sh,
+)
 
 scale_activation = torch.exp
 scale_inverse_activation = torch.log
@@ -2203,16 +2215,16 @@ def load_rc_model(
     checkpoint = torch.load(rc_path, map_location=nerfmodel.device)
     
     if retrocompatibility:
-        if not '_points' in checkpoint['state_dict'].keys():
+        if '_points' not in checkpoint['state_dict'].keys():
             checkpoint['state_dict']['_points'] = checkpoint['state_dict']['points']
             checkpoint['state_dict'].pop('points')
             
-        if not '_sh_coordinates_dc' in checkpoint['state_dict'].keys():
+        if '_sh_coordinates_dc' not in checkpoint['state_dict'].keys():
             checkpoint['state_dict']['_sh_coordinates_dc'] = checkpoint['state_dict']['sh_coordinates'][..., 0:1, :]
             checkpoint['state_dict']['_sh_coordinates_rest'] = checkpoint['state_dict']['sh_coordinates'][..., 1:, :]
             checkpoint['state_dict'].pop('sh_coordinates')
             
-        if not '_scales' in checkpoint['state_dict'].keys():
+        if '_scales' not in checkpoint['state_dict'].keys():
             checkpoint['state_dict']['_scales'] = checkpoint['state_dict']['radiuses'][0, ..., 4:]
             checkpoint['state_dict']['_quaternions'] = checkpoint['state_dict']['radiuses'][0, ..., :4]
             checkpoint['state_dict'].pop('radiuses')

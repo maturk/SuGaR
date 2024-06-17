@@ -287,7 +287,7 @@ def refined_training(args):
     
     export_ply_at_the_end = args.export_ply
     
-    ply_path = os.path.join(source_path, "sparse/0/points3D.ply")
+    ply_path = os.path.join(source_path, "point_cloud.ply")
     
     CONSOLE.print("-----Parsed parameters-----")
     CONSOLE.print("Source path:", source_path)

@@ -1,15 +1,18 @@
-import os
 import json
+import os
 
 import numpy as np
 import torch
 from PIL import Image
-
 from pytorch3d.renderer import FoVPerspectiveCameras as P3DCameras
 from pytorch3d.renderer.cameras import _get_sfm_calibration_matrix
-
-from sugar_utils.graphics_utils import focal2fov, fov2focal, getWorld2View2, getProjectionMatrix
 from sugar_utils.general_utils import PILtoTorch
+from sugar_utils.graphics_utils import (
+    focal2fov,
+    fov2focal,
+    getProjectionMatrix,
+    getWorld2View2,
+)
 
 
 def load_gs_cameras(source_path, gs_output_path, image_resolution=1, 
@@ -27,10 +30,11 @@ def load_gs_cameras(source_path, gs_output_path, image_resolution=1,
         List of GSCameras: List of Gaussian Splatting cameras.
     """
     image_dir = os.path.join(source_path, 'images')
-    
+    image_dir = os.path.join(source_path, 'rgb')
     with open(gs_output_path + 'cameras.json') as f:
         unsorted_camera_transforms = json.load(f)
     camera_transforms = sorted(unsorted_camera_transforms.copy(), key = lambda x : x['img_name'])
+    # Convert each dictionary to a tuple and make it a set to remove duplicates
 
     cam_list = []
     extension = '.' + os.listdir(image_dir)[0].split('.')[-1]

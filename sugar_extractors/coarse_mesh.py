@@ -480,9 +480,15 @@ def extract_mesh_from_coarse_sugar(args):
                         ).replace(
                             'AA', str(decimation_target).replace('.', '')
                             )
+                    bg_pcd_path = os.path.join(mesh_output_dir, f'bg_pcd_after_clean_surface_level_{surface_level}.ply')
+                    fg_pcd_path = os.path.join(mesh_output_dir, f'fg_pcd_after_clean_surface_level_{surface_level}.ply')
                     sugar_mesh_path = os.path.join(mesh_output_dir, sugar_mesh_path)
                     o3d.io.write_triangle_mesh(sugar_mesh_path, decimated_o3d_mesh, write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
                     CONSOLE.print("Mesh saved at", sugar_mesh_path)
+                    CONSOLE.print("Saving pointclouds ", str(bg_pcd_path), str(fg_pcd_path))
+                    o3d.io.write_point_cloud(bg_pcd_path, bg_pcd)
+                    o3d.io.write_point_cloud(fg_pcd_path, fg_pcd)
+
                     all_sugar_mesh_paths.append(sugar_mesh_path)
                     
         else:

@@ -89,6 +89,28 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss(image, gt_image)
+
+        if iteration % 100 == 0:
+            from pathlib import Path
+            from PIL import Image
+            import numpy as np
+            def save_img(image, image_path, verbose=True) -> None:
+                if image.shape[-1] == 1 and torch.is_tensor(image):
+                    image = image.repeat(1, 1, 3)
+                if torch.is_tensor(image):
+                    image = image.detach().cpu().numpy() * 255
+                    image = image.astype(np.uint8)
+                if not Path(os.path.dirname(image_path)).exists():
+                    Path(os.path.dirname(image_path)).mkdir(parents=True)
+                im = Image.fromarray(image)
+                if verbose:
+                    print("saving to: ", image_path)
+                im.save(image_path)
+
+            import os
+            save_img(image.permute(1,2,0), os.getcwd()+"/test_image.png")
+            save_img(gt_image.permute(1,2,0), os.getcwd()+"/test_gt_image.png")
+
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         loss.backward()
 
